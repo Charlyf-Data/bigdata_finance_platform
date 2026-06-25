@@ -5,7 +5,6 @@ Première brique du pipeline BigData Finance : il se connecte au flux
 WebSocket public de Binance, reçoit les bougies (klines) en continu et
 maintient une connexion résiliente prête à alimenter Kafka.
 
-![Architecture du consumer](files_explication_ingestion/image.png)
 
 ---
 
@@ -97,6 +96,8 @@ Sans la boucle, le consumer mourrait à la première déconnexion.
 ---
 
 ## Les trois scénarios de fermeture
+
+![Logique de fermeture et reconnexion](files_explication_ingestion/image.png)
 
 | Scénario | Signal reçu ? | Comportement |
 |----------|---------------|--------------|
