@@ -5,6 +5,8 @@ Première brique du pipeline BigData Finance : il se connecte au flux
 WebSocket public de Binance, reçoit les bougies (klines) en continu et
 maintient une connexion résiliente prête à alimenter Kafka.
 
+![Architecture du consumer](files_explication_ingestion/image.png)
+
 ---
 
 ## Vue d'ensemble
