@@ -1,0 +1,163 @@
+name: 'big-data-architect'
+
+services:
+
+  # ============================================================
+  # KAFKA BROKER (mode KRaft — sans Zookeeper)
+  # Un seul nœud qui joue les deux rôles : broker + controller
+  # ============================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    # Version fixe (Kafka 3.6) — évite les surprises de :latest
+
+    hostname: kafka
+    container_name: kafka
+
+    ports:
+      - "9092:9092"
+      # Seul port exposé : listener EXTERNAL pour ton producer Python
+      # 29092 (INTERNAL) et 9093 (CONTROLLER) restent dans le réseau Docker
+
+    environment:
+
+      # --- IDENTITÉ ---
+      KAFKA_NODE_ID: 1
+      # ID unique du nœud — à incrémenter si tu ajoutes kafka2, kafka3
+
+      CLUSTER_ID: "31a4af24T1y2bA2wf6rlug"
+      # ID du cluster — ne jamais le changer une fois les données créées
+      # Nouveau : kafka-storage random-uuid
+
+      # --- MODE KRAFT ---
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      # broker     = reçoit et stocke les messages
+      # controller = gère les métadonnées du cluster (remplace Zookeeper)
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      # Nœuds qui votent pour élire le controller (format nodeId@host:port)
+
+      # --- LISTENERS (portes d'entrée) ---
+      KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      # INTERNAL:29092  → trafic entre conteneurs (kafka-ui, kafka-init, Spark…)
+      # EXTERNAL:9092   → clients sur ta machine (producer / consumer Python)
+      # CONTROLLER:9093 → coordination KRaft, interne uniquement
+
+      KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka:29092,EXTERNAL://localhost:9092'
+      # Adresse que Kafka renvoie au client pour la suite des échanges
+      # Un conteneur doit recevoir "kafka", ta machine doit recevoir "localhost"
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      # Protocole de chaque listener
+      # PLAINTEXT = non chiffré (ok en local) — en prod : SSL ou SASL_SSL
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+      # Listener utilisé entre brokers (utile en multi-broker)
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      # Listener réservé à KRaft
+
+      # --- TOPICS & RÉPLICATION ---
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Crée un topic au premier message — pratique en sandbox, à désactiver en prod
+      # (une faute de frappe dans un nom de topic crée un topic fantôme)
+
+      KAFKA_NUM_PARTITIONS: 3
+      # Partitions par défaut d'un nouveau topic
+
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      # Réplication ≤ nombre de brokers → 1 broker = 1, 3 brokers = 3
+
+      # --- RÉTENTION (valeurs par défaut, surchargeables par topic) ---
+      KAFKA_LOG_RETENTION_HOURS: 168
+      # 7 jours
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      # 1 Go max par partition — le premier critère atteint déclenche la purge
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      # Kafka écrit dans des fichiers "segments" de 1 Go max
+
+      # --- PERFORMANCE ---
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # 0 = rebalancing immédiat (sandbox) — en prod : ~3000 ms
+      KAFKA_MESSAGE_MAX_BYTES: 1048576
+      # 1 Mo max par message
+
+      # --- STOCKAGE ---
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+      # Emplacement des données dans le conteneur
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      # Volume nommé géré par Docker (voir : docker volume ls)
+      # Survit à un down/up — supprimé seulement avec : docker compose down -v
+
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      # "localhost" ici = l'intérieur du conteneur kafka lui-même
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================
+  # KAFKA UI — interface web
+  # http://localhost:8080
+  # ============================================================
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafka-ui
+
+    ports:
+      - "8080:8080"
+      # hôte:conteneur — passer à "8081:8080" si le 8080 est déjà pris (ex. Airflow)
+
+    environment:
+      KAFKA_CLUSTERS_0_NAME: 'local'
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 'kafka:29092'
+      # Listener INTERNAL — kafka-ui est un conteneur, pas ta machine
+      DYNAMIC_CONFIG_ENABLED: 'true'
+      # Config modifiable depuis l'UI sans redémarrage
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ============================================================
+  # KAFKA INIT — crée les topics au démarrage, puis s'arrête
+  # ============================================================
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo 'Kafka est prêt — création des topics...'
+
+        # trades.raw : trades bruts de tous les symboles
+        # clé = symbole → ordre garanti par symbole
+        # rétention 24h (86400000 ms)
+        kafka-topics --bootstrap-server kafka:29092 \
+          --create --if-not-exists \
+          --topic trades.raw \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=86400000
+
+        echo 'Topics créés :'
+        kafka-topics --bootstrap-server kafka:29092 --list
+
+# ============================================================
+# RÉSEAU — les conteneurs se joignent par leur nom (kafka, kafka-ui…)
+# ============================================================
+networks:
+  default:
+    name: kafka-network
+
+volumes:
+  kafka-data:

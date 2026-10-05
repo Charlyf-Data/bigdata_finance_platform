@@ -8,16 +8,18 @@ connexion résiliente pilotée par les signaux système.
 import logging
 
 import websocket
-
 from callbacks import BinanceCallbacks
 from config import BinanceConfig
 from reconnect import ReconnectHandler
 from shutdown import ShutdownHandler
+from kafka_publisher import KafkaPublisher    
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+logger = logging.getLogger(__name__)
 
 
 def run() -> None:
@@ -29,7 +31,8 @@ def run() -> None:
     """
     config = BinanceConfig()
     reconnect = ReconnectHandler(max_delay=config.max_reconnect_delay)
-    callbacks = BinanceCallbacks(reconnect=reconnect)
+    publisher = KafkaPublisher("localhost:9092", "klines.raw")
+    callbacks = BinanceCallbacks(reconnect=reconnect, on_record=publisher.publish)
     shutdown = ShutdownHandler()
 
     wsapp = websocket.WebSocketApp(
@@ -51,6 +54,7 @@ def run() -> None:
         finally:
             if not shutdown.should_stop:
                 reconnect.wait()
+    publisher.close()
 
 
 if __name__ == "__main__":

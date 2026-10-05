@@ -6,9 +6,10 @@ reconnexion est remis à zéro via le ReconnectHandler injecté.
 """
 
 import logging
-
+import json
 from reconnect import ReconnectHandler
-
+from transform import transrorm_kline
+from typing import Callable  
 logger = logging.getLogger(__name__)
 
 
@@ -19,13 +20,15 @@ class BinanceCallbacks:
     connexion s'établit avec succès.
     """
 
-    def __init__(self, reconnect: ReconnectHandler) -> None:
+    def __init__(self, reconnect: ReconnectHandler, on_record: Callable[[dict], None]) -> None:
         """Initialise les callbacks avec le gestionnaire de reconnexion.
 
         Args:
             reconnect: Gestionnaire de backoff à réinitialiser à l'ouverture.
+            on_record: Fonction à appeler lorsqu'un enregistrement est transformé.
         """
         self.reconnect = reconnect
+        self.on_record = on_record
 
     def on_open(self, wsapp) -> None:
         """Appelé à l'ouverture de la connexion.
@@ -39,14 +42,18 @@ class BinanceCallbacks:
         self.reconnect.reset()
         logger.info("Connexion établie")
 
-    def on_message(self, wsapp, message: str) -> None:
-        """Appelé à chaque message reçu du serveur.
 
-        Args:
-            wsapp: Instance WebSocketApp à l'origine de l'événement.
-            message: Charge utile brute du message (JSON non parsé).
-        """
-        logger.info("Message reçu: %s", message)
+    def on_message(self, wsapp, message: str) -> None:
+        try:
+            data = json.loads(message)
+            if data.get("e") != "kline":
+                logger.warning("Message inattendu reçu: %s", message)
+                return
+            record = transrorm_kline(data)
+            self.on_record(record)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("Message ignoré: %s", e)
+
 
     def on_error(self, wsapp, error) -> None:
         """Appelé lors d'une erreur de connexion.
