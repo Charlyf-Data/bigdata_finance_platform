@@ -39,3 +39,4 @@ class KafkaPublisher:
         """Appelé par poll() pour chaque accusé de réception."""
         if err is not None:
             logger.error("Échec de livraison: %s", err)
+

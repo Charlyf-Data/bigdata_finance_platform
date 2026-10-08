@@ -57,7 +57,7 @@ services:
       # Listener réservé à KRaft
 
       # --- TOPICS & RÉPLICATION ---
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       # Crée un topic au premier message — pratique en sandbox, à désactiver en prod
       # (une faute de frappe dans un nom de topic crée un topic fantôme)
 
@@ -136,7 +136,20 @@ services:
 
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - |
+       - |
+        set -e
+        echo 'Kafka est prêt — création des topics...'
+
+        # klines.raw : bougies 1m de tous les symboles
+        # clé = symbole → ordre garanti par symbole
+        # rétention 24h (86400000 ms)
+        kafka-topics --bootstrap-server kafka:29092 \
+          --create --if-not-exists \
+          --topic klines.raw \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=86400000
+
         echo 'Kafka est prêt — création des topics...'
 
         # trades.raw : trades bruts de tous les symboles
@@ -151,6 +164,7 @@ services:
 
         echo 'Topics créés :'
         kafka-topics --bootstrap-server kafka:29092 --list
+
 
 # ============================================================
 # RÉSEAU — les conteneurs se joignent par leur nom (kafka, kafka-ui…)

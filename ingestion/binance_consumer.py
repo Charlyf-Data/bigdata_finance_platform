@@ -9,7 +9,7 @@ import logging
 
 import websocket
 from callbacks import BinanceCallbacks
-from config import BinanceConfig
+from binance_config import BinanceConfig
 from reconnect import ReconnectHandler
 from shutdown import ShutdownHandler
 from kafka_publisher import KafkaPublisher    
