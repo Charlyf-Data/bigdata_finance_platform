@@ -1,2 +1,5 @@
 websocket-client
 confluent-kafka
+requests>=2.32
+pyarrow>=17
+pytest>=8

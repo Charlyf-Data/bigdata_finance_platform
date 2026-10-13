@@ -1,0 +1,75 @@
+# Ajout au docker-compose.yml existant, sans le modifier :
+#   cd docker
+#   docker compose -f docker-compose.yml -f docker-compose.pipeline.yml up -d --build
+#
+# - kafka-init crée les topics depuis common/topics.txt (source unique) ;
+# - chaque processus Python tourne dans son conteneur, relancé s'il tombe.
+
+x-pipeline: &pipeline
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  environment:
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  depends_on:
+    kafka:
+      condition: service_healthy
+    kafka-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+
+  kafka-init:
+    volumes:
+      - ../common/topics.txt:/topics.txt:ro
+    command:
+      - |
+        set -e
+        echo 'Création des topics depuis common/topics.txt...'
+        grep -v '^#' /topics.txt | grep -v '^[[:space:]]*$$' | while read -r t; do
+          extra=''
+          case "$$t" in
+            *depth*) extra='--config retention.bytes=-1' ;;
+          esac
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$t" --partitions 3 --replication-factor 1 \
+            --config retention.ms=86400000 $$extra
+        done
+        echo 'Topics présents :'
+        kafka-topics --bootstrap-server kafka:29092 --list
+
+  ws-spot:
+    <<: *pipeline
+    container_name: ws-spot
+    command: ["python", "-m", "ingestion.run_ws", "spot"]
+
+  ws-futures-public:
+    <<: *pipeline
+    container_name: ws-futures-public
+    command: ["python", "-m", "ingestion.run_ws", "futures-public"]
+
+  ws-futures-market:
+    <<: *pipeline
+    container_name: ws-futures-market
+    command: ["python", "-m", "ingestion.run_ws", "futures-market"]
+
+  rest-poller:
+    <<: *pipeline
+    container_name: rest-poller
+    command: ["python", "-m", "ingestion.run_rest"]
+
+  normalizer:
+    <<: *pipeline
+    container_name: normalizer
+    command: ["python", "-m", "processing.run_normalize"]
+
+  sink:
+    <<: *pipeline
+    container_name: sink
+    command: ["python", "-m", "storage.sink"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      DATA_DIR: /data
+    volumes:
+      - ../data:/data

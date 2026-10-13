@@ -1,0 +1,24 @@
+# Source unique des topics : lue par kafka-init et par common/kafka_config.py.
+# Brut   : <exchange>.<marché>.<type>.raw  -> message natif intact + enveloppe
+# Neutre : <marché>.<type>.v1              -> contrat de common/contracts.py
+# Une ligne par topic. Lignes vides et commentaires ignorés.
+
+binance.spot.kline.raw
+binance.spot.trade.raw
+binance.futures.trade.raw
+binance.futures.markprice.raw
+binance.futures.liquidation.raw
+binance.futures.booktop.raw
+binance.futures.depth.raw
+binance.futures.depth-snapshot.raw
+binance.futures.open-interest.raw
+
+spot.kline.v1
+spot.trade.v1
+futures.trade.v1
+futures.markprice.v1
+futures.liquidation.v1
+futures.booktop.v1
+futures.depth.v1
+futures.depth-snapshot.v1
+futures.open-interest.v1
