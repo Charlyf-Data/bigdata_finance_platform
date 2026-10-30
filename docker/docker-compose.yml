@@ -14,9 +14,8 @@ services:
     container_name: kafka
 
     ports:
-      - "9092:9092"
-      # Seul port exposé : listener EXTERNAL pour ton producer Python
-      # 29092 (INTERNAL) et 9093 (CONTROLLER) restent dans le réseau Docker
+      - "${KAFKA_BIND:-127.0.0.1}:9092:9092"
+        # Bind sur localhost pour éviter l'accès depuis le réseau (sécurité)
 
     environment:
 
@@ -109,8 +108,9 @@ services:
     container_name: kafka-ui
 
     ports:
-      - "8080:8080"
-      # hôte:conteneur — passer à "8081:8080" si le 8080 est déjà pris (ex. Airflow)
+      - "${KAFKA_UI_BIND:-127.0.0.1}:8080:8080"
+        # Bind sur localhost pour éviter l'accès depuis le réseau (sécurité)
+      
 
     environment:
       KAFKA_CLUSTERS_0_NAME: 'local'
