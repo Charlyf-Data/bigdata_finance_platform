@@ -1,0 +1,119 @@
+# Déploiement production (serveur bigdata-prod-01).
+# Fichiers attendus dans /srv/bigdata : ce compose, topics.txt, .env (APP_VERSION=…), data/ (uid 10001)
+# Lancement : sudo docker compose -f docker-compose.prod.yml up -d
+name: bigdata-prod
+
+x-pipeline: &pipeline
+  image: ghcr.io/charlyf-data/bigdata-finance-platform:${APP_VERSION:?APP_VERSION manquant dans .env}
+  environment:
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  depends_on:
+    kafka:
+      condition: service_healthy
+    kafka-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+  mem_limit: 512m
+  read_only: true                          # système de fichiers en lecture seule
+  tmpfs: [/tmp]                            # seul /tmp reste inscriptible (en RAM)
+  cap_drop: [ALL]                          # aucune capacité Linux
+  security_opt: ["no-new-privileges:true"] # impossible de regagner des privilèges
+
+services:
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    # AUCUN ports: → joignable uniquement depuis le réseau Docker interne
+    environment:
+      KAFKA_NODE_ID: 1
+      CLUSTER_ID: "31a4af24T1y2bA2wf6rlug"
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_LISTENERS: 'INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'INTERNAL://kafka:29092,EXTERNAL://localhost:9092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'INTERNAL'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+      KAFKA_HEAP_OPTS: "-Xms1g -Xmx1g"     # heap fixe, nettement SOUS mem_limit
+    mem_limit: 2g                           # pas de swap : sans limite, l'OOM killer choisirait seul
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./topics.txt:/topics.txt:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        grep -v '^#' /topics.txt | grep -v '^[[:space:]]*$$' | while read -r t; do
+          extra=''
+          case "$$t" in
+            *depth*) extra='--config retention.bytes=-1' ;;
+          esac
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$t" --partitions 3 --replication-factor 1 \
+            --config retention.ms=86400000 $$extra
+        done
+        kafka-topics --bootstrap-server kafka:29092 --list
+
+  ws-spot:
+    <<: *pipeline
+    container_name: ws-spot
+    command: ["python", "-m", "ingestion.run_ws", "spot"]
+
+  ws-futures-public:
+    <<: *pipeline
+    container_name: ws-futures-public
+    command: ["python", "-m", "ingestion.run_ws", "futures-public"]
+
+  ws-futures-market:
+    <<: *pipeline
+    container_name: ws-futures-market
+    command: ["python", "-m", "ingestion.run_ws", "futures-market"]
+
+  rest-poller:
+    <<: *pipeline
+    container_name: rest-poller
+    command: ["python", "-m", "ingestion.run_rest"]
+
+  normalizer:
+    <<: *pipeline
+    container_name: normalizer
+    command: ["python", "-m", "processing.run_normalize"]
+
+  sink:
+    <<: *pipeline
+    container_name: sink
+    command: ["python", "-m", "storage.sink"]
+    mem_limit: 1g                           # traitement plus lourd, donc plus de mémoire
+    environment:                             
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data                        # /srv/bigdata/data, propriétaire uid 10001
+
+volumes:
+  kafka-data:
