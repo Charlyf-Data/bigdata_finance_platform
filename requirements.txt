@@ -1,5 +1,5 @@
-websocket-client
-confluent-kafka
+websocket-client>=1.8
+confluent-kafka>=2.5
 requests>=2.32
 pyarrow>=17
 pytest>=8
