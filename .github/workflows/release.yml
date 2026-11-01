@@ -1,0 +1,64 @@
+# .github/workflows/release.yml
+# CD v2 : « fabrique et publie l'image » — uniquement sur un tag vX.Y.Z
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # 1. Rejouer toute la CI (tests + secrets) : on ne publie jamais une image non vérifiée
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # 2. Construire l'image arm64 et la publier sur ghcr.io
+  image:
+    name: image
+    needs: ci # ne démarre que si tests ET secrets sont verts
+    runs-on: ubuntu-24.04-arm # build natif arm64 (comme le CAX31) : pas de QEMU
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # SEUL ce job peut écrire dans ghcr.io
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Préparer Buildx (nécessaire pour le cache)
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Se connecter à ghcr.io
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # token éphémère du run, pas de PAT longue durée
+
+      - name: Calculer les tags et labels de l'image
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/charlyf-data/bigdata-finance-platform # en minuscules obligatoirement
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Construire et publier l'image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
