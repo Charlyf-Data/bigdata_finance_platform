@@ -1,0 +1,18 @@
+[Unit]
+Description=Dead man's switch du pipeline bigdata (ping Healthchecks.io)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Pas de root : le script ne fait que lire data/ et envoyer une requête HTTPS
+User=charly
+# Lu par systemd (root) AVANT de passer à charly : le fichier peut rester root:root 600
+EnvironmentFile=/srv/bigdata/healthcheck.env
+ExecStart=/srv/bigdata/healthcheck.sh
+# Durcissement
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/srv/bigdata
