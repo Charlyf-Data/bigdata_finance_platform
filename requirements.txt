@@ -3,3 +3,4 @@ confluent-kafka>=2.5
 requests>=2.32
 pyarrow>=17
 pytest>=8
+duckdb==2.0.0
