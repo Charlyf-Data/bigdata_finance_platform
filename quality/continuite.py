@@ -83,3 +83,48 @@ def trouver_trous(
         """
     ).fetchall()
     return [Trou(*ligne) for ligne in lignes]
+
+
+
+@dataclass(frozen=True)
+class Rupture:
+    """Rupture de chaîne du carnet : le `pu` reçu ne correspond pas au `u` précédent."""
+
+    symbol: str
+    u_precedent: int  # dernier update id reçu avant la rupture
+    pu_recu: int  # ce que le message suivant annonce comme update id précédent
+    avant_ms: int
+    apres_ms: int
+
+
+def trouver_ruptures_carnet(
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    colonne_temps: str = "event_time",
+) -> list[Rupture]:
+    """Continuité du carnet futures Binance : chaque `pu` doit égaler le `u` précédent.
+
+    La source doit exposer les colonnes symbol, u, pu et la colonne de temps.
+    Les doublons (même symbol, u, pu) sont fusionnés avant la comparaison.
+    """
+    lignes = con.execute(
+        f"""
+        WITH ev AS (
+            SELECT symbol, CAST(u AS BIGINT) AS u, CAST(pu AS BIGINT) AS pu,
+                   min({colonne_temps}) AS t
+            FROM {source}
+            GROUP BY symbol, CAST(u AS BIGINT), CAST(pu AS BIGINT)
+        ),
+        suite AS (
+            SELECT symbol, u, pu, t,
+                   lag(u) OVER (PARTITION BY symbol ORDER BY u) AS u_prec,
+                   lag(t) OVER (PARTITION BY symbol ORDER BY u) AS t_prec
+            FROM ev
+        )
+        SELECT symbol, u_prec, pu, t_prec, t
+        FROM suite
+        WHERE u_prec IS NOT NULL AND pu <> u_prec
+        ORDER BY symbol, u
+        """
+    ).fetchall()
+    return [Rupture(*ligne) for ligne in lignes]
