@@ -3,6 +3,8 @@
 Deux usages, volontairement séparés :
 - `verifier_compaction` : BLOQUANT. Les fichiers compactés doivent contenir exactement
   les mêmes lignes que les fichiers minute, doublons compris. Sinon, on ne supprime rien.
+  La comparaison se fait par empreinte (nombre de lignes + somme des hash de chaque ligne) :
+  mémoire constante, quel que soit le volume du jour.
 - `rapport_qualite` : NON BLOQUANT. Les anomalies sont signalées, mais la donnée est
   archivée quand même : une donnée avec un trou reste précieuse.
 
@@ -25,16 +27,17 @@ class FideliteCompaction:
     colonnes_identiques: bool
     lignes_avant: int
     lignes_apres: int
-    avant_sauf_apres: int  # en multiensemble (EXCEPT ALL) : les doublons comptent
-    apres_sauf_avant: int
+    # Somme des hash de toutes les lignes : indépendante de l'ordre, sensible aux doublons
+    # (une ligne en double compte deux fois). Un écart = au moins une ligne perdue ou modifiée.
+    empreinte_avant: int
+    empreinte_apres: int
 
     @property
     def fidele(self) -> bool:
         return (
             self.colonnes_identiques
             and self.lignes_avant == self.lignes_apres
-            and self.avant_sauf_apres == 0
-            and self.apres_sauf_avant == 0
+            and self.empreinte_avant == self.empreinte_apres
         )
 
 
@@ -80,29 +83,28 @@ def _colonnes(con: duckdb.DuckDBPyConnection, source: str) -> list[str]:
     return [ligne[0] for ligne in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()]
 
 
-def _compte(con: duckdb.DuckDBPyConnection, sql: str) -> int:
-    return con.execute(f"SELECT count(*) FROM ({sql})").fetchall()[0][0]
+def _liste(colonnes: list[str]) -> str:
+    # Ordre alphabétique : l'empreinte ne dépend pas de l'ordre des colonnes dans le fichier
+    return ", ".join(f'"{c}"' for c in sorted(colonnes))
+
+
+def _empreinte(con: duckdb.DuckDBPyConnection, source: str, colonnes: list[str]) -> tuple[int, int]:
+    """(nombre de lignes, somme des hash des lignes) en une seule passe, mémoire constante."""
+    lignes, somme = con.execute(
+        f"SELECT count(*), coalesce(sum(hash({_liste(colonnes)})::HUGEINT), 0) FROM {source}"
+    ).fetchall()[0]
+    return lignes, int(somme)
 
 
 def verifier_compaction(
     con: duckdb.DuckDBPyConnection, avant: str, apres: str
 ) -> FideliteCompaction:
-    """Compare ligne à ligne, doublons compris, les sources avant et après compaction."""
+    """Compare, doublons compris, les sources avant et après compaction."""
     cols_avant, cols_apres = _colonnes(con, avant), _colonnes(con, apres)
-    if sorted(cols_avant) != sorted(cols_apres):
-        return FideliteCompaction(False, _compte(con, f"SELECT * FROM {avant}"),
-                                  _compte(con, f"SELECT * FROM {apres}"), -1, -1)
-
-    cols = ", ".join(f'"{c}"' for c in sorted(cols_avant))
-    a = f"SELECT {cols} FROM {avant}"
-    b = f"SELECT {cols} FROM {apres}"
-    return FideliteCompaction(
-        colonnes_identiques=True,
-        lignes_avant=_compte(con, a),
-        lignes_apres=_compte(con, b),
-        avant_sauf_apres=_compte(con, f"{a} EXCEPT ALL {b}"),
-        apres_sauf_avant=_compte(con, f"{b} EXCEPT ALL {a}"),
-    )
+    identiques = sorted(cols_avant) == sorted(cols_apres)
+    lignes_avant, empreinte_avant = _empreinte(con, avant, cols_avant)
+    lignes_apres, empreinte_apres = _empreinte(con, apres, cols_apres)
+    return FideliteCompaction(identiques, lignes_avant, lignes_apres, empreinte_avant, empreinte_apres)
 
 
 def rapport_qualite(
@@ -112,8 +114,11 @@ def rapport_qualite(
     controles: Mapping[str, Sequence[Controle]],
 ) -> RapportQualite:
     """Rapport non bloquant : lignes, doublons, puis les contrôles enregistrés pour ce type."""
-    lignes = _compte(con, f"SELECT * FROM {source}")
-    doublons = lignes - _compte(con, f"SELECT DISTINCT * FROM {source}")
+    colonnes = _colonnes(con, source)
+    lignes, distinctes = con.execute(
+        f"SELECT count(*), count(DISTINCT hash({_liste(colonnes)})) FROM {source}"
+    ).fetchall()[0]
+    doublons = lignes - distinctes  # par hash : 8 octets par ligne au lieu de la ligne entière
     anomalies: dict[str, int] = {}
     for controle in controles.get(kind, ()):
         anomalies |= controle(con, source)

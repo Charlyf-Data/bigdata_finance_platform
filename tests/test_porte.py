@@ -40,7 +40,7 @@ def test_compaction_fidele():
 def test_ligne_perdue_bloque():
     avant = [raw_trade(i) for i in range(1, 6)]
     resultat = verifier_compaction(con_avec(avant=avant, apres=avant[:-1]), "avant", "apres")
-    assert not resultat.fidele and resultat.avant_sauf_apres == 1
+    assert not resultat.fidele and resultat.lignes_avant - resultat.lignes_apres == 1
 
 
 def test_doublon_perdu_bloque():
@@ -62,6 +62,18 @@ def test_colonne_perdue_bloque():
     apres = [{k: v for k, v in raw_trade(1).items() if k != "received_at"}]
     resultat = verifier_compaction(con_avec(avant=avant, apres=apres), "avant", "apres")
     assert not resultat.fidele and not resultat.colonnes_identiques
+
+def test_ligne_modifiee_bloque():
+    # Même nombre de lignes, mais un payload altéré : seule l'empreinte le voit
+    avant = [raw_trade(i) for i in range(1, 6)]
+    apres = avant[:-1] + [{**raw_trade(5), "payload": "corrompu"}]
+    resultat = verifier_compaction(con_avec(avant=avant, apres=apres), "avant", "apres")
+    assert resultat.lignes_avant == resultat.lignes_apres and not resultat.fidele
+
+
+def test_ordre_des_lignes_indifferent():
+    avant = [raw_trade(i) for i in range(1, 6)]
+    assert verifier_compaction(con_avec(avant=avant, apres=avant[::-1]), "avant", "apres").fidele
 
 
 def test_ordre_des_colonnes_indifferent():

@@ -81,7 +81,7 @@ def test_bloque_ne_supprime_rien(tmp_path):
     minutes_avant = sorted(p.name for p in dossier.iterdir())
 
     def verdict_infidele(con, avant, apres, kind):
-        return Verdict(FideliteCompaction(True, 10, 9, 1, 0), RapportQualite(kind, 9, 0))
+        return Verdict(FideliteCompaction(True, 10, 9, 111, 222), RapportQualite(kind, 9, 0))
 
     r = compacter_jour(dossier, "trade", verdict_infidele)
 
