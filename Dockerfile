@@ -22,6 +22,7 @@ COPY exchanges ./exchanges
 COPY ingestion ./ingestion
 COPY processing ./processing
 COPY storage ./storage
+COPY quality ./quality
 
 # À partir d'ici, tout s'exécute sous l'utilisateur app.
 USER app
