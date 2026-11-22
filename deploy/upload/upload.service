@@ -1,0 +1,24 @@
+[Unit]
+Description=bigdata : upload S3 du Bronze (jours raw compactés)
+Wants=network-online.target
+After=network-online.target compaction.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/bigdata/s3.env
+ExecStart=/usr/local/sbin/bigdata-upload.sh
+TimeoutStartSec=4h
+DynamicUser=yes
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+Nice=10
+IOSchedulingClass=idle

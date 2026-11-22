@@ -1,0 +1,9 @@
+[Unit]
+Description=bigdata : upload S3 nocturne (03:00 UTC)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
