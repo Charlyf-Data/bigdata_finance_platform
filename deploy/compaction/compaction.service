@@ -1,0 +1,13 @@
+[Unit]
+Description=Compaction nocturne du Bronze (J-1)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Script et configuration dans des emplacements appartenant à root : charly ne peut pas les modifier
+EnvironmentFile=/etc/bigdata/compaction.env
+ExecStart=/usr/local/sbin/bigdata-compaction.sh
+TimeoutStartSec=3h
+NoNewPrivileges=yes
+PrivateTmp=yes
