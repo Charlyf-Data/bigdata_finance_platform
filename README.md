@@ -169,6 +169,26 @@ Avec Kafka démarré, un processus peut aussi se lancer à la main depuis la rac
 
 Les tests ne demandent ni Kafka, ni accès à Binance, ni stockage S3 : chaque dépendance externe est remplacée par un faux objet qui respecte le même contrat. Ils couvrent le découpage des messages Binance, les normalisations, l'aiguillage vers les topics, le classement des erreurs REST, la planification des requêtes, l'écriture Parquet, le rejeu, la compaction, la porte qualité et les contrôles de continuité.
 
+
+## Chaîne de livraison
+
+```mermaid
+flowchart LR
+    B[branche] --> PR[pull request]
+    PR --> CI{"CI<br/>tests pytest<br/>+ recherche de secrets"}
+    CI -->|vert| M[squash merge sur main]
+    CI -->|rouge| B
+    M --> T[tag vX.Y.Z]
+    T --> R[build de l'image Docker]
+    R --> G[(registre d'images)]
+    G -->|image épinglée par empreinte| PROD[serveur]
+```
+
+- `main` est protégée : on n'y pousse jamais directement, tout passe par une pull request avec une CI verte.
+- Une release se déclenche en poussant un tag `vX.Y.Z`. L'image est construite par la CI, jamais à la main.
+- Le serveur utilise l'image par son empreinte (`@sha256:…`), pas par son tag : une image modifiée après coup ne serait pas exécutée.
+
+
 ## Qualité des données
 
 La compaction passe par une **porte qualité** avant de supprimer quoi que ce soit :
