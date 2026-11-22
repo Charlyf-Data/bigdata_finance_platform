@@ -1,0 +1,26 @@
+[Unit]
+Description=bigdata : purge locale (jours > 7, vérifiés dans S3)
+Wants=network-online.target
+After=network-online.target upload.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/bigdata/s3.env
+Environment=DRY_RUN=0
+ExecStart=/usr/local/sbin/bigdata-purge.sh
+TimeoutStartSec=2h
+User=10001
+Group=10001
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/bigdata/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+Nice=10
+IOSchedulingClass=idle
