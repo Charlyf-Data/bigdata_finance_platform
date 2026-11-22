@@ -27,7 +27,7 @@ problemes=()
 stale=()
 for t in "${TOPICS[@]}"; do
   # Tout le dossier du topic (pas seulement date=aujourd'hui) : pas de faux échec à minuit UTC
-  if ! find "${DATA_DIR}/${t}" -name '*.parquet' -mmin "-${MAX_AGE_MIN}" -print -quit 2>/dev/null | grep -q .; then
+  if ! find "${DATA_DIR}/${t}" -name 'part-*.parquet' -mmin "-${MAX_AGE_MIN}" -print -quit 2>/dev/null | grep -q .; then
     stale+=("$t")
   fi
 done
