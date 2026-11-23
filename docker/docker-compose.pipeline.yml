@@ -28,13 +28,12 @@ services:
         set -e
         echo 'Création des topics depuis common/topics.txt...'
         grep -v '^#' /topics.txt | grep -v '^[[:space:]]*$$' | while read -r t; do
-          extra=''
-          case "$$t" in
-            *depth*) extra='--config retention.bytes=-1' ;;
-          esac
+          # retention.bytes=-1 : rétention par durée seulement. Sans lui, le plafond du broker
+          # (1 Go par partition) peut raccourcir la fenêtre des topics lourds sous les 24 h.
           kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
             --topic "$$t" --partitions 3 --replication-factor 1 \
-            --config retention.ms=86400000 $$extra
+            --config retention.ms=86400000 --config retention.bytes=-1 \
+            --config compression.type=zstd
         done
         echo 'Topics présents :'
         kafka-topics --bootstrap-server kafka:29092 --list
